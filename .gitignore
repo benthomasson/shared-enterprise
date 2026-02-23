@@ -1,0 +1,12 @@
+# Database (local data, not shared)
+*.db
+*.db-wal
+*.db-shm
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# OS
+.DS_Store
