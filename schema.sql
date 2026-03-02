@@ -61,6 +61,15 @@ CREATE TABLE IF NOT EXISTS sources (
     metadata JSON
 );
 
+-- Embeddings for semantic search
+CREATE TABLE IF NOT EXISTS embeddings (
+    id TEXT PRIMARY KEY,           -- matches entries.id or claims.id
+    source_table TEXT NOT NULL,    -- 'entries' or 'claims'
+    vector BLOB NOT NULL,          -- numpy array as bytes
+    model TEXT NOT NULL,           -- embedding model name
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Entry relationships
 CREATE TABLE IF NOT EXISTS entry_links (
     from_id TEXT NOT NULL,
