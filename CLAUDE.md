@@ -48,6 +48,16 @@ python3 scripts/db.py describe        # full orientation: all tables, schemas, s
 python3 scripts/db.py context "topic" # unified search: entries + claims + history + facets + links
 ```
 
+### `scripts/index_files.py` — Auto-Index Markdown Files
+
+```bash
+python3 scripts/index_files.py index ~/path/to/entries     # scan and upsert markdown files
+python3 scripts/index_files.py index ./entries --reindex    # force re-index all
+python3 scripts/index_files.py status                       # show index stats
+```
+
+Indexes markdown files into the entries table with FTS5 and facet extraction. Skips unchanged files (content hash). IDs are relative paths (e.g., `2026/03/02/sdd-counterargument`).
+
 ### `scripts/entry.py` — Entry Management
 
 ```bash
