@@ -92,6 +92,20 @@ uv run python scripts/embed.py contradictions --verify    # + LLM second pass vi
 - **FTS5 for keyword search**, embeddings for semantic search. Use FTS5 first (free, instant), fall back to embeddings when you need meaning-based similarity.
 - **Facet extraction is regex-based.** The rules are in `entry.py:extract_facets()`. They can be updated as new patterns are needed.
 - **Contradiction detection is two-pass.** Embedding similarity narrows candidates (free), then LLM verifies (cheap — only N candidates instead of N² pairs).
+- **`entry_links` is a generic knowledge graph.** Entries and claims both participate as nodes. Use `claims.py link` to connect claims to entries.
+
+## Source Conventions
+
+The `claims.source` field uses prefixed strings. The prefix indicates what kind of source it is:
+
+| Prefix | Meaning | Staleness checkable | Example |
+|--------|---------|---------------------|---------|
+| `repo:path` | File in a git repo | Yes — re-read file, compare | `agents-python:src/.../client.py` |
+| `observation:` | Direct observation of tool/system behavior | No — re-run to verify | `observation:gcloud-sdk-model-list` |
+| `analysis:` | Reasoning in an entry or document | No — re-read the analysis | `analysis:sdd-counterargument` |
+| `experience:` | Hands-on experience with a tool/workflow | No — experiential | `experience:code-explainer` |
+
+Only `repo:` sources support automated staleness detection (compare source hash). Other source types require manual re-evaluation.
 
 ## Gotchas
 
