@@ -230,6 +230,20 @@ def context(terms: str):
                 for l in links:
                     label = l["title"] if l["title"] else l["to_id"]
                     print(f"    → {label} ({l['relation']})")
+            # Show history for this claim via reverse index
+            hist = conn.execute(
+                """
+                SELECT h.event_date, h.event_type, h.summary
+                FROM history_refs hr
+                JOIN history h ON h.id = hr.history_id
+                WHERE hr.ref_id = ?
+                ORDER BY h.event_date
+                """,
+                (row["id"],),
+            ).fetchall()
+            if hist:
+                for h in hist:
+                    print(f"    {h['event_date']} [{h['event_type']}] {h['summary']}")
             print()
 
     # 3. History

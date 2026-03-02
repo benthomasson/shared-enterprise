@@ -104,9 +104,18 @@ CREATE TRIGGER IF NOT EXISTS entries_au AFTER UPDATE ON entries BEGIN
     VALUES (new.rowid, new.title, new.content, new.topic);
 END;
 
+-- History references (normalized from history.related_ids JSON)
+CREATE TABLE IF NOT EXISTS history_refs (
+    history_id TEXT NOT NULL,
+    ref_id TEXT NOT NULL,
+    ref_table TEXT NOT NULL DEFAULT 'claims',
+    PRIMARY KEY (history_id, ref_id)
+);
+
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_entries_topic ON entries(topic);
 CREATE INDEX IF NOT EXISTS idx_entries_created ON entries(created_at);
 CREATE INDEX IF NOT EXISTS idx_claims_status ON claims(status);
 CREATE INDEX IF NOT EXISTS idx_history_date ON history(event_date);
 CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id);
+CREATE INDEX IF NOT EXISTS idx_history_refs_ref ON history_refs(ref_id);
