@@ -10,6 +10,8 @@ Usage:
 """
 
 import argparse
+import asyncio
+import json
 import sqlite3
 import sys
 from pathlib import Path
@@ -197,7 +199,44 @@ def similar(item_id):
     conn.close()
 
 
-def find_contradictions():
+async def llm_check_contradiction(text_a, text_b, id_a, id_b):
+    """Ask an LLM whether two claims contradict each other."""
+    prompt = f"""Do these two claims contradict each other? Answer with a JSON object.
+
+Claim A ({id_a}): {text_a}
+Claim B ({id_b}): {text_b}
+
+Respond ONLY with JSON:
+{{"contradicts": true/false, "explanation": "one sentence why or why not"}}"""
+
+    import os
+    env = {**os.environ}
+    env.pop("CLAUDECODE", None)
+    proc = await asyncio.create_subprocess_exec(
+        "claude", "-p", prompt, "--model", "haiku",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=env,
+    )
+    stdout, stderr = await proc.communicate()
+
+    if proc.returncode != 0:
+        return {"contradicts": None, "explanation": f"LLM error: {stderr.decode().strip()}"}
+
+    response = stdout.decode().strip()
+    # Extract JSON from response
+    try:
+        # Handle case where LLM wraps in markdown
+        if "```" in response:
+            response = response.split("```")[1]
+            if response.startswith("json"):
+                response = response[4:]
+        return json.loads(response)
+    except (json.JSONDecodeError, IndexError):
+        return {"contradicts": None, "explanation": f"Could not parse: {response[:100]}"}
+
+
+def find_contradictions(verify=False):
     """Find potential contradictions among IN claims by high similarity."""
     conn = get_connection()
 
@@ -227,16 +266,57 @@ def find_contradictions():
         print("No high-similarity claim pairs found (threshold: 0.6)")
         return
 
-    print(f"Potential contradictions (high similarity, {len(pairs)} pairs):\n")
+    print(f"Embedding filter: {len(in_ids)} claims -> {len(pairs)} candidate pairs\n")
+
+    if not verify:
+        print("Candidate pairs (use --verify for LLM second pass):\n")
+        for sim, id_a, id_b in pairs:
+            text_a = conn.execute("SELECT text FROM claims WHERE id = ?", (id_a,)).fetchone()["text"]
+            text_b = conn.execute("SELECT text FROM claims WHERE id = ?", (id_b,)).fetchone()["text"]
+            print(f"  {sim:.3f}  {id_a} <-> {id_b}")
+            print(f"    A: {text_a}")
+            print(f"    B: {text_b}")
+            print()
+    else:
+        print(f"Running LLM verification on {len(pairs)} pairs...\n")
+        results = asyncio.run(_verify_pairs(conn, pairs))
+
+        contradictions = [(sim, id_a, id_b, r) for (sim, id_a, id_b), r in zip(pairs, results) if r.get("contradicts")]
+        compatible = [(sim, id_a, id_b, r) for (sim, id_a, id_b), r in zip(pairs, results) if r.get("contradicts") is False]
+        errors = [(sim, id_a, id_b, r) for (sim, id_a, id_b), r in zip(pairs, results) if r.get("contradicts") is None]
+
+        if contradictions:
+            print(f"CONTRADICTIONS FOUND ({len(contradictions)}):\n")
+            for sim, id_a, id_b, result in contradictions:
+                text_a = conn.execute("SELECT text FROM claims WHERE id = ?", (id_a,)).fetchone()["text"]
+                text_b = conn.execute("SELECT text FROM claims WHERE id = ?", (id_b,)).fetchone()["text"]
+                print(f"  {sim:.3f}  {id_a} <-> {id_b}")
+                print(f"    A: {text_a}")
+                print(f"    B: {text_b}")
+                print(f"    Why: {result.get('explanation', '')}")
+                print()
+        else:
+            print("No contradictions found.\n")
+
+        if compatible:
+            print(f"Compatible pairs ({len(compatible)}): {[(id_a, id_b) for _, id_a, id_b, _ in compatible]}")
+
+        if errors:
+            print(f"Errors ({len(errors)}):")
+            for _, id_a, id_b, r in errors:
+                print(f"  {id_a} <-> {id_b}: {r.get('explanation', 'unknown')}")
+
+    conn.close()
+
+
+async def _verify_pairs(conn, pairs):
+    """Run LLM verification on all candidate pairs concurrently."""
+    tasks = []
     for sim, id_a, id_b in pairs:
         text_a = conn.execute("SELECT text FROM claims WHERE id = ?", (id_a,)).fetchone()["text"]
         text_b = conn.execute("SELECT text FROM claims WHERE id = ?", (id_b,)).fetchone()["text"]
-        print(f"  {sim:.3f}  {id_a} <-> {id_b}")
-        print(f"    A: {text_a}")
-        print(f"    B: {text_b}")
-        print()
-
-    conn.close()
+        tasks.append(llm_check_contradiction(text_a, text_b, id_a, id_b))
+    return await asyncio.gather(*tasks)
 
 
 def main():
@@ -251,7 +331,8 @@ def main():
     similar_p = subparsers.add_parser("similar", help="Find similar items")
     similar_p.add_argument("id", help="Item ID")
 
-    subparsers.add_parser("contradictions", help="Find potential contradictions")
+    contra_p = subparsers.add_parser("contradictions", help="Find potential contradictions")
+    contra_p.add_argument("--verify", action="store_true", help="Use LLM to verify candidates")
 
     args = parser.parse_args()
 
@@ -262,7 +343,7 @@ def main():
     elif args.command == "similar":
         similar(args.id)
     elif args.command == "contradictions":
-        find_contradictions()
+        find_contradictions(verify=args.verify)
 
 
 if __name__ == "__main__":
