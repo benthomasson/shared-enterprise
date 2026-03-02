@@ -61,6 +61,15 @@ CREATE TABLE IF NOT EXISTS sources (
     metadata JSON
 );
 
+-- Entry relationships
+CREATE TABLE IF NOT EXISTS entry_links (
+    from_id TEXT NOT NULL,
+    to_id TEXT NOT NULL,
+    relation TEXT DEFAULT 'related' CHECK (relation IN ('related', 'supersedes', 'extends', 'contradicts')),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (from_id, to_id)
+);
+
 -- Full-text search
 CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
     title, content, topic,
