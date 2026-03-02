@@ -1,6 +1,7 @@
 """Claims management for shared-enterprise."""
 
 import json
+import re
 from datetime import datetime
 
 from .db import get_connection
@@ -279,3 +280,69 @@ def audit():
         print(f"\nWARNING: {len(unsourced)} claims without sources: {[r['id'] for r in unsourced]}")
     print()
     conn.close()
+
+
+def import_beliefs(filepath):
+    """Import claims from a beliefs.md file."""
+    from pathlib import Path
+
+    path = Path(filepath)
+    if not path.exists():
+        print(f"File not found: {filepath}")
+        return
+
+    text = path.read_text()
+
+    # Parse beliefs.md format:
+    #   ### claim-id [STATUS]
+    #   Claim text on next line
+    #   - Source: repo:path/to/file
+    #   - Source hash: abc123
+    #   - Date: 2026-02-25
+    pattern = re.compile(
+        r"### (\S+) \[(\w+)\]\n"
+        r"(.+?)\n"
+        r"- Source: (.+?)\n"
+        r"- Source hash: (\w+)\n"
+        r"- Date: (\S+)"
+    )
+    matches = pattern.findall(text)
+
+    if not matches:
+        print(f"No beliefs found in {filepath}")
+        print("Expected format: ### claim-id [STATUS]\\nClaim text\\n- Source: ...\\n- Source hash: ...\\n- Date: ...")
+        return
+
+    conn = get_connection()
+    added = 0
+    updated = 0
+    unchanged = 0
+
+    for claim_id, status, claim_text, source, source_hash, date in matches:
+        # Normalize source prefix
+        if not source.startswith(("repo:", "observation:", "analysis:", "experience:")):
+            source = "repo:" + source
+
+        existing = conn.execute("SELECT id, text, source, source_hash FROM claims WHERE id = ?", (claim_id,)).fetchone()
+        if existing:
+            # Update if text or source changed
+            if existing["text"] != claim_text or existing["source"] != source or existing["source_hash"] != source_hash:
+                conn.execute(
+                    "UPDATE claims SET text = ?, status = ?, source = ?, source_hash = ?, updated_at = ? WHERE id = ?",
+                    (claim_text, status, source, source_hash, date + "T00:00:00", claim_id),
+                )
+                updated += 1
+            else:
+                unchanged += 1
+        else:
+            conn.execute(
+                "INSERT INTO claims (id, text, status, source, source_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (claim_id, claim_text, status, source, source_hash, date + "T00:00:00"),
+            )
+            added += 1
+
+    conn.commit()
+    conn.close()
+    total = added + updated + unchanged
+    print(f"Imported {total} beliefs from {filepath}")
+    print(f"  New: {added}  Updated: {updated}  Unchanged: {unchanged}")

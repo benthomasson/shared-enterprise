@@ -47,6 +47,10 @@ def main():
     schema_p = subparsers.add_parser("schema", help="Show table schema")
     schema_p.add_argument("table", help="Table name")
 
+    # -- import-beliefs --
+    import_p = subparsers.add_parser("import-beliefs", help="Import claims from a beliefs.md file")
+    import_p.add_argument("file", help="Path to beliefs.md")
+
     # -- entry (subgroup) --
     entry_p = subparsers.add_parser("entry", help="Entry management")
     entry_sub = entry_p.add_subparsers(dest="entry_command")
@@ -160,6 +164,10 @@ def main():
     elif args.command == "schema":
         from .db import schema
         schema(args.table)
+
+    elif args.command == "import-beliefs":
+        from .claims import import_beliefs
+        import_beliefs(args.file)
 
     elif args.command == "entry":
         if not args.entry_command:
