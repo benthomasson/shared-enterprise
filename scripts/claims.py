@@ -131,6 +131,22 @@ def show_claim(claim_id):
     if dependents:
         print(f"Depended on by: {dependents}")
 
+    # Show linked entries
+    links = conn.execute(
+        """
+        SELECT el.to_id, el.relation, e.title
+        FROM entry_links el
+        LEFT JOIN entries e ON e.id = el.to_id
+        WHERE el.from_id = ?
+        """,
+        (claim_id,),
+    ).fetchall()
+    if links:
+        print("Linked entries:")
+        for l in links:
+            label = l["title"] if l["title"] else l["to_id"]
+            print(f"  → {label} ({l['relation']})")
+
     conn.close()
 
 
@@ -286,6 +302,32 @@ def audit():
     conn.close()
 
 
+def link_claim(claim_id, entry_id, relation="related"):
+    """Link a claim to an entry via entry_links."""
+    conn = get_connection()
+
+    claim = conn.execute("SELECT id FROM claims WHERE id = ?", (claim_id,)).fetchone()
+    if not claim:
+        print(f"Claim not found: {claim_id}")
+        conn.close()
+        return
+
+    entry = conn.execute("SELECT id, title FROM entries WHERE id = ?", (entry_id,)).fetchone()
+    if not entry:
+        print(f"Entry not found: {entry_id}")
+        conn.close()
+        return
+
+    conn.execute(
+        "INSERT OR IGNORE INTO entry_links (from_id, to_id, relation) VALUES (?, ?, ?)",
+        (claim_id, entry_id, relation),
+    )
+    conn.commit()
+    conn.close()
+
+    print(f"Linked: {claim_id} → {entry['title']} ({relation})")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Claims management")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -323,6 +365,14 @@ def main():
     # audit
     subparsers.add_parser("audit", help="Run full belief audit")
 
+    # link
+    link_p = subparsers.add_parser("link", help="Link a claim to an entry")
+    link_p.add_argument("id", help="Claim ID")
+    link_p.add_argument("entry_id", help="Entry ID")
+    link_p.add_argument("--relation", default="related",
+                        choices=["related", "supersedes", "extends", "contradicts"],
+                        help="Relationship type")
+
     args = parser.parse_args()
 
     if args.command == "add":
@@ -341,6 +391,8 @@ def main():
         retract(args.id)
     elif args.command == "audit":
         audit()
+    elif args.command == "link":
+        link_claim(args.id, args.entry_id, args.relation)
 
 
 if __name__ == "__main__":
