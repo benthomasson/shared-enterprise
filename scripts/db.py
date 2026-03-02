@@ -8,6 +8,7 @@ Usage:
     ./scripts/db.py schema entries
     ./scripts/db.py search "authentication retry"
     ./scripts/db.py describe
+    ./scripts/db.py context "error handling"
 """
 
 import json
@@ -156,6 +157,113 @@ def describe():
     conn.close()
 
 
+def context(terms: str):
+    """Gather everything relevant to a topic across all tables."""
+    conn = get_connection()
+    like = f"%{terms}%"
+    found_anything = False
+
+    # 1. FTS5 entries
+    try:
+        rows = conn.execute(
+            """
+            SELECT e.id, e.topic, e.title, e.content, e.metadata
+            FROM entries_fts fts
+            JOIN entries e ON e.rowid = fts.rowid
+            WHERE entries_fts MATCH ?
+            ORDER BY fts.rank
+            """,
+            (terms,),
+        ).fetchall()
+    except sqlite3.Error:
+        # FTS match syntax error — fall back to LIKE
+        rows = conn.execute(
+            "SELECT id, topic, title, content, metadata FROM entries WHERE content LIKE ? OR title LIKE ?",
+            (like, like),
+        ).fetchall()
+
+    if rows:
+        found_anything = True
+        print(f"## Entries ({len(rows)})\n")
+        for row in rows:
+            print(f"  [{row['topic']}] {row['title']} (id: {row['id']})")
+            content = row["content"]
+            if len(content) > 150:
+                content = content[:150] + "..."
+            print(f"    {content}")
+            if row["metadata"]:
+                meta = json.loads(row["metadata"])
+                if meta:
+                    print(f"    Facets: {list(meta.keys())}")
+            # Show links from this entry
+            links = conn.execute(
+                "SELECT to_id, relation FROM entry_links WHERE from_id = ?",
+                (row["id"],),
+            ).fetchall()
+            if links:
+                print(f"    Links: {[(l['to_id'], l['relation']) for l in links]}")
+            print()
+
+    # 2. Claims
+    rows = conn.execute(
+        "SELECT id, status, text, source FROM claims WHERE text LIKE ? ORDER BY status, id",
+        (like,),
+    ).fetchall()
+    if rows:
+        found_anything = True
+        print(f"## Claims ({len(rows)})\n")
+        for row in rows:
+            print(f"  [{row['status']}] {row['id']}: {row['text']}")
+            if row["source"]:
+                print(f"    Source: {row['source']}")
+            # Show links from this claim
+            links = conn.execute(
+                """
+                SELECT el.to_id, el.relation, e.title
+                FROM entry_links el
+                LEFT JOIN entries e ON e.id = el.to_id
+                WHERE el.from_id = ?
+                """,
+                (row["id"],),
+            ).fetchall()
+            if links:
+                for l in links:
+                    label = l["title"] if l["title"] else l["to_id"]
+                    print(f"    → {label} ({l['relation']})")
+            print()
+
+    # 3. History
+    rows = conn.execute(
+        "SELECT event_date, event_type, summary, related_ids FROM history WHERE summary LIKE ? ORDER BY event_date",
+        (like,),
+    ).fetchall()
+    if rows:
+        found_anything = True
+        print(f"## History ({len(rows)})\n")
+        for row in rows:
+            related = json.loads(row["related_ids"]) if row["related_ids"] else []
+            related_str = f" → {related}" if related else ""
+            print(f"  {row['event_date']} [{row['event_type']}] {row['summary']}{related_str}")
+        print()
+
+    # 4. Facet metadata — search for the term in extracted facets
+    rows = conn.execute(
+        "SELECT id, title, metadata FROM entries WHERE metadata LIKE ?",
+        (like,),
+    ).fetchall()
+    if rows:
+        found_anything = True
+        print(f"## Facet Matches ({len(rows)})\n")
+        for row in rows:
+            meta = json.loads(row["metadata"])
+            print(f"  {row['title']} (id: {row['id']})")
+            print(f"    {json.dumps(meta)}")
+        print()
+
+    if not found_anything:
+        print(f"Nothing found for: {terms}")
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -173,6 +281,8 @@ def main():
         search(sys.argv[2])
     elif cmd == "describe":
         describe()
+    elif cmd == "context" and len(sys.argv) > 2:
+        context(sys.argv[2])
     else:
         print(__doc__)
         sys.exit(1)
