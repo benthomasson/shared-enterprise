@@ -12,6 +12,8 @@ Usage:
 
 import argparse
 import hashlib
+import json
+import re
 import sqlite3
 import sys
 from datetime import datetime
@@ -33,17 +35,52 @@ def generate_id(topic: str, title: str) -> str:
     return hashlib.sha256(data.encode()).hexdigest()[:12]
 
 
+def extract_facets(text: str) -> dict:
+    """Extract structured facets from free text using regex."""
+    facets = {}
+
+    # File paths: slash-separated with common extensions
+    file_paths = re.findall(
+        r'(?:^|[\s`(])([a-zA-Z0-9_./]+(?:\.py|\.js|\.ts|\.go|\.rs|\.java|\.yaml|\.yml|\.toml|\.json|\.md|\.sql))\b',
+        text,
+    )
+    if file_paths:
+        facets["file_paths"] = sorted(set(file_paths))
+
+    # CamelCase identifiers (likely class/exception names)
+    camel = re.findall(r'\b([A-Z][a-z]+(?:[A-Z][a-z]+)+)\b', text)
+    if camel:
+        facets["identifiers"] = sorted(set(camel))
+
+    # URLs
+    urls = re.findall(r'https?://[^\s)>\]]+', text)
+    if urls:
+        facets["urls"] = sorted(set(urls))
+
+    # snake_case identifiers (likely function/variable names, 2+ segments)
+    snake = re.findall(r'\b([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\b', text)
+    # Filter out common English phrases that happen to match
+    noise = {"of_the", "in_the", "to_the", "on_the", "at_the", "is_a", "has_a", "for_the"}
+    snake = [s for s in snake if s not in noise and len(s) > 4]
+    if snake:
+        facets["functions"] = sorted(set(snake))
+
+    return facets
+
+
 def add_entry(topic: str, title: str, content: str, source_skill: str = "entry"):
-    """Add a new entry."""
+    """Add a new entry with auto-extracted metadata facets."""
     conn = get_connection()
     entry_id = generate_id(topic, title)
+    facets = extract_facets(content)
+    metadata = json.dumps(facets) if facets else None
 
     conn.execute(
         """
-        INSERT INTO entries (id, topic, title, content, source_skill)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO entries (id, topic, title, content, source_skill, metadata)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (entry_id, topic, title, content, source_skill),
+        (entry_id, topic, title, content, source_skill, metadata),
     )
     conn.commit()
     conn.close()
@@ -51,6 +88,8 @@ def add_entry(topic: str, title: str, content: str, source_skill: str = "entry")
     print(f"Added entry: {entry_id}")
     print(f"  Topic: {topic}")
     print(f"  Title: {title}")
+    if facets:
+        print(f"  Facets: {json.dumps(facets, indent=2)}")
     return entry_id
 
 
