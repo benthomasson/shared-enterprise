@@ -346,3 +346,62 @@ def import_beliefs(filepath):
     total = added + updated + unchanged
     print(f"Imported {total} beliefs from {filepath}")
     print(f"  New: {added}  Updated: {updated}  Unchanged: {unchanged}")
+
+
+def import_nogoods(filepath):
+    """Import nogoods from a nogoods.md file into the history table."""
+    from pathlib import Path
+
+    path = Path(filepath)
+    if not path.exists():
+        print(f"File not found: {filepath}")
+        return
+
+    text = path.read_text()
+
+    # Parse nogoods.md format:
+    #   ### nogood-001: Description text
+    #   - Discovered: 2026-02-26
+    #   - Resolution: How to fix it
+    pattern = re.compile(
+        r"### (nogood-\d+): (.+?)\n"
+        r"- Discovered: (\S+)\n"
+        r"- Resolution: (.+?)(?:\n|$)"
+    )
+    matches = pattern.findall(text)
+
+    if not matches:
+        print(f"No nogoods found in {filepath}")
+        print("Expected format: ### nogood-NNN: Description\\n- Discovered: ...\\n- Resolution: ...")
+        return
+
+    conn = get_connection()
+    added = 0
+    updated = 0
+    unchanged = 0
+
+    for nogood_id, description, discovered, resolution in matches:
+        summary = f"{description} → {resolution}"
+
+        existing = conn.execute("SELECT id, summary FROM history WHERE id = ?", (nogood_id,)).fetchone()
+        if existing:
+            if existing["summary"] != summary:
+                conn.execute(
+                    "UPDATE history SET summary = ?, event_date = ? WHERE id = ?",
+                    (summary, discovered, nogood_id),
+                )
+                updated += 1
+            else:
+                unchanged += 1
+        else:
+            conn.execute(
+                "INSERT INTO history (id, event_date, event_type, summary) VALUES (?, ?, 'nogood', ?)",
+                (nogood_id, discovered, summary),
+            )
+            added += 1
+
+    conn.commit()
+    conn.close()
+    total = added + updated + unchanged
+    print(f"Imported {total} nogoods from {filepath}")
+    print(f"  New: {added}  Updated: {updated}  Unchanged: {unchanged}")

@@ -51,6 +51,10 @@ def main():
     import_p = subparsers.add_parser("import-beliefs", help="Import claims from a beliefs.md file")
     import_p.add_argument("file", help="Path to beliefs.md")
 
+    # -- import-nogoods --
+    import_ng = subparsers.add_parser("import-nogoods", help="Import nogoods from a nogoods.md file")
+    import_ng.add_argument("file", help="Path to nogoods.md")
+
     # -- entry (subgroup) --
     entry_p = subparsers.add_parser("entry", help="Entry management")
     entry_sub = entry_p.add_subparsers(dest="entry_command")
@@ -168,6 +172,10 @@ def main():
     elif args.command == "import-beliefs":
         from .claims import import_beliefs
         import_beliefs(args.file)
+
+    elif args.command == "import-nogoods":
+        from .claims import import_nogoods
+        import_nogoods(args.file)
 
     elif args.command == "entry":
         if not args.entry_command:
