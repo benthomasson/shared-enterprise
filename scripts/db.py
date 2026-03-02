@@ -16,7 +16,16 @@ import sqlite3
 import sys
 from pathlib import Path
 
+try:
+    import numpy as np
+    from fastembed import TextEmbedding
+
+    HAS_EMBEDDINGS = True
+except ImportError:
+    HAS_EMBEDDINGS = False
+
 DB_PATH = Path(__file__).parent.parent / "shared.db"
+EMBED_MODEL = "BAAI/bge-small-en-v1.5"
 
 
 def get_connection():
@@ -273,6 +282,38 @@ def context(terms: str):
             print(f"  {row['title']} (id: {row['id']})")
             print(f"    {json.dumps(meta)}")
         print()
+
+    # 5. Semantic search (only if fastembed available)
+    if HAS_EMBEDDINGS:
+        emb_rows = conn.execute(
+            "SELECT id, source_table, vector FROM embeddings"
+        ).fetchall()
+        if emb_rows:
+            model = TextEmbedding(model_name=EMBED_MODEL)
+            query_vec = list(model.embed([terms]))[0]
+
+            scored = []
+            for row in emb_rows:
+                vec = np.frombuffer(row["vector"], dtype=np.float32)
+                dot = np.dot(query_vec, vec)
+                norm = np.linalg.norm(query_vec) * np.linalg.norm(vec)
+                sim = float(dot / norm) if norm > 0 else 0.0
+                if sim >= 0.4:
+                    scored.append((sim, row["id"], row["source_table"]))
+
+            scored.sort(reverse=True)
+            if scored:
+                found_anything = True
+                print(f"## Semantic Matches ({len(scored)})\n")
+                for sim, item_id, source_table in scored[:8]:
+                    if source_table == "entries":
+                        r = conn.execute("SELECT title FROM entries WHERE id = ?", (item_id,)).fetchone()
+                        label = r["title"] if r else item_id
+                    else:
+                        r = conn.execute("SELECT text FROM claims WHERE id = ?", (item_id,)).fetchone()
+                        label = r["text"][:80] if r else item_id
+                    print(f"  {sim:.3f}  [{source_table}] {item_id}: {label}")
+                print()
 
     if not found_anything:
         print(f"Nothing found for: {terms}")
