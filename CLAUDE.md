@@ -45,6 +45,7 @@ python3 scripts/db.py tables          # list all tables
 python3 scripts/db.py schema TABLE    # show column types for a table
 python3 scripts/db.py search "terms"  # FTS5 full-text search (BM25 ranked)
 python3 scripts/db.py describe        # full orientation: all tables, schemas, sample rows
+python3 scripts/db.py context "topic" # unified search: entries + claims + history + facets + links
 ```
 
 ### `scripts/entry.py` — Entry Management
