@@ -61,6 +61,31 @@ CREATE TABLE IF NOT EXISTS sources (
     metadata JSON
 );
 
+-- Full-text search
+CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
+    title, content, topic,
+    content='entries',
+    content_rowid='rowid'
+);
+
+-- Keep FTS in sync with entries table
+CREATE TRIGGER IF NOT EXISTS entries_ai AFTER INSERT ON entries BEGIN
+    INSERT INTO entries_fts(rowid, title, content, topic)
+    VALUES (new.rowid, new.title, new.content, new.topic);
+END;
+
+CREATE TRIGGER IF NOT EXISTS entries_ad AFTER DELETE ON entries BEGIN
+    INSERT INTO entries_fts(entries_fts, rowid, title, content, topic)
+    VALUES ('delete', old.rowid, old.title, old.content, old.topic);
+END;
+
+CREATE TRIGGER IF NOT EXISTS entries_au AFTER UPDATE ON entries BEGIN
+    INSERT INTO entries_fts(entries_fts, rowid, title, content, topic)
+    VALUES ('delete', old.rowid, old.title, old.content, old.topic);
+    INSERT INTO entries_fts(rowid, title, content, topic)
+    VALUES (new.rowid, new.title, new.content, new.topic);
+END;
+
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_entries_topic ON entries(topic);
 CREATE INDEX IF NOT EXISTS idx_entries_created ON entries(created_at);

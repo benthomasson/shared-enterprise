@@ -6,6 +6,8 @@ Usage:
     ./scripts/db.py query "SELECT * FROM entries LIMIT 10"
     ./scripts/db.py tables
     ./scripts/db.py schema entries
+    ./scripts/db.py search "authentication retry"
+    ./scripts/db.py describe
 """
 
 import json
@@ -87,6 +89,73 @@ def schema(table_name: str):
     conn.close()
 
 
+def search(terms: str):
+    """Full-text search across entries using FTS5."""
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            """
+            SELECT e.id, e.topic, e.title, e.content, fts.rank
+            FROM entries_fts fts
+            JOIN entries e ON e.rowid = fts.rowid
+            WHERE entries_fts MATCH ?
+            ORDER BY fts.rank
+            """,
+            (terms,),
+        )
+        rows = cursor.fetchall()
+
+        if not rows:
+            print(f"No results for: {terms}")
+            return
+
+        for row in rows:
+            print(f"[{row['topic']}] {row['title']} (id: {row['id']})")
+            # Show first 200 chars of content
+            content = row["content"]
+            if len(content) > 200:
+                content = content[:200] + "..."
+            print(f"  {content}")
+            print()
+
+        print(f"({len(rows)} results)")
+    except sqlite3.Error as e:
+        print(f"Error: {e}")
+    finally:
+        conn.close()
+
+
+def describe():
+    """Describe all tables: schema, row counts, and sample data."""
+    conn = get_connection()
+    cursor = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'entries_fts%' ORDER BY name"
+    )
+    table_names = [row[0] for row in cursor.fetchall()]
+
+    for name in table_names:
+        # Row count
+        count = conn.execute(f"SELECT COUNT(*) FROM [{name}]").fetchone()[0]
+        print(f"## {name} ({count} rows)")
+
+        # Schema
+        cols = conn.execute(f"PRAGMA table_info([{name}])").fetchall()
+        for col in cols:
+            nullable = "" if col["notnull"] else " (nullable)"
+            default = f" DEFAULT {col['dflt_value']}" if col["dflt_value"] else ""
+            pk = " PK" if col["pk"] else ""
+            print(f"  {col['name']}: {col['type']}{pk}{default}{nullable}")
+
+        # Sample row
+        if count > 0:
+            sample = conn.execute(f"SELECT * FROM [{name}] LIMIT 1").fetchone()
+            print(f"  Sample: {dict(sample)}")
+
+        print()
+
+    conn.close()
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -100,6 +169,10 @@ def main():
         tables()
     elif cmd == "schema" and len(sys.argv) > 2:
         schema(sys.argv[2])
+    elif cmd == "search" and len(sys.argv) > 2:
+        search(sys.argv[2])
+    elif cmd == "describe":
+        describe()
     else:
         print(__doc__)
         sys.exit(1)
