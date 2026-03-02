@@ -13,7 +13,7 @@ You are managing entries in the shared-enterprise database.
 Add a new entry to the database.
 
 ```bash
-python scripts/entry.py add --topic "project-analyze" --title "Architecture Review" --content "..."
+python scripts/entry.py add --topic "retrieval" --title "Query Planning Experiment" --content "..."
 ```
 
 Or with content from stdin:
@@ -26,7 +26,7 @@ List entries, optionally filtered by topic:
 
 ```bash
 python scripts/entry.py list
-python scripts/entry.py list --topic "project-analyze"
+python scripts/entry.py list --topic "retrieval"
 ```
 
 ### show
@@ -45,10 +45,10 @@ python scripts/entry.py search "keyword"
 
 ## Natural Language Conversion
 
-If user says: `/entry add something about Project Analyze architecture`
+If user says: `/entry add notes on query planning experiment`
 
 Convert to:
-1. Determine the topic (e.g., "project-analyze")
+1. Determine the topic (e.g., "retrieval")
 2. Extract or generate a title
 3. Use the content provided or prompt for it
 4. Run the add command
