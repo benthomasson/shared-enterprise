@@ -1,32 +1,12 @@
-#!/usr/bin/env python3
-"""
-Auto-index markdown files into the shared-enterprise database.
+"""Auto-index markdown files into the shared-enterprise database."""
 
-Usage:
-    ./scripts/index_files.py index DIRECTORY          # scan and upsert
-    ./scripts/index_files.py index DIRECTORY --reindex # force re-index all
-    ./scripts/index_files.py status                    # show index stats
-"""
-
-import argparse
 import hashlib
 import json
-import re
-import sqlite3
 import sys
 from pathlib import Path
 
-# Import extract_facets from entry.py
-sys.path.insert(0, str(Path(__file__).parent))
-from entry import extract_facets
-
-DB_PATH = Path(__file__).parent.parent / "shared.db"
-
-
-def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+from .db import get_connection
+from .entry import extract_facets
 
 
 def content_hash(text: str) -> str:
@@ -36,6 +16,8 @@ def content_hash(text: str) -> str:
 
 def parse_markdown(path: Path) -> dict:
     """Extract title, date, and content from a markdown file."""
+    import re
+
     text = path.read_text()
     lines = text.split("\n")
 
@@ -64,7 +46,6 @@ def parse_markdown(path: Path) -> dict:
 
 def make_id(rel_path: str) -> str:
     """Convert relative path to entry ID."""
-    # Strip .md extension
     if rel_path.endswith(".md"):
         rel_path = rel_path[:-3]
     return rel_path
@@ -85,7 +66,6 @@ def index_directory(directory: str, reindex: bool = False):
     conn = get_connection()
 
     md_files = sorted(base.rglob("*.md"))
-    # Skip README files
     md_files = [f for f in md_files if f.name.lower() != "readme.md"]
 
     if not md_files:
@@ -104,7 +84,6 @@ def index_directory(directory: str, reindex: bool = False):
         parsed = parse_markdown(path)
         file_hash = content_hash(parsed["content"])
 
-        # Check if already indexed with same hash
         if not reindex:
             existing = conn.execute(
                 "SELECT metadata FROM entries WHERE id = ?", (entry_id,)
@@ -115,13 +94,11 @@ def index_directory(directory: str, reindex: bool = False):
                     skipped += 1
                     continue
 
-        # Extract facets and add index metadata
         facets = extract_facets(parsed["content"])
         facets["source_path"] = str(path)
         facets["content_hash"] = file_hash
         metadata = json.dumps(facets)
 
-        # Upsert
         existing = conn.execute(
             "SELECT id FROM entries WHERE id = ?", (entry_id,)
         ).fetchone()
@@ -167,7 +144,6 @@ def show_status():
     print(f"Entries: {total} total ({indexed} from files, {manual} manual)")
 
     if indexed > 0:
-        # Show source directories
         rows = conn.execute(
             "SELECT metadata FROM entries WHERE source_skill = 'index_files' AND metadata IS NOT NULL"
         ).fetchall()
@@ -175,9 +151,7 @@ def show_status():
         for row in rows:
             meta = json.loads(row["metadata"])
             if "source_path" in meta:
-                # Get parent of the entries/ dir
                 parts = Path(meta["source_path"]).parts
-                # Find the repo root (parent of entries/)
                 for i, p in enumerate(parts):
                     if p == "entries" and i > 0:
                         dirs.add("/".join(parts[: i + 1]))
@@ -185,36 +159,15 @@ def show_status():
         if dirs:
             print(f"  Sources: {', '.join(sorted(dirs))}")
 
-    # FTS status
     fts_count = conn.execute("SELECT COUNT(*) FROM entries_fts").fetchone()[0]
     print(f"  FTS5 indexed: {fts_count}")
 
-    # Embeddings
-    emb_count = conn.execute(
-        "SELECT COUNT(*) FROM embeddings WHERE source_table = 'entries'"
-    ).fetchone()[0]
-    print(f"  Embeddings: {emb_count} (run 'uv run embed.py index' to update)")
+    try:
+        emb_count = conn.execute(
+            "SELECT COUNT(*) FROM embeddings WHERE source_table = 'entries'"
+        ).fetchone()[0]
+        print(f"  Embeddings: {emb_count}")
+    except Exception:
+        print("  Embeddings: (table not created)")
 
     conn.close()
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Auto-index markdown files")
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    index_p = subparsers.add_parser("index", help="Index markdown files from a directory")
-    index_p.add_argument("directory", help="Directory to scan")
-    index_p.add_argument("--reindex", action="store_true", help="Force re-index all files")
-
-    subparsers.add_parser("status", help="Show index statistics")
-
-    args = parser.parse_args()
-
-    if args.command == "index":
-        index_directory(args.directory, reindex=args.reindex)
-    elif args.command == "status":
-        show_status()
-
-
-if __name__ == "__main__":
-    main()

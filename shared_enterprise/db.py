@@ -1,15 +1,4 @@
-#!/usr/bin/env python3
-"""
-Simple database CLI for shared-enterprise.
-
-Usage:
-    ./scripts/db.py query "SELECT * FROM entries LIMIT 10"
-    ./scripts/db.py tables
-    ./scripts/db.py schema entries
-    ./scripts/db.py search "authentication retry"
-    ./scripts/db.py describe
-    ./scripts/db.py context "error handling"
-"""
+"""Database access and query commands for shared-enterprise."""
 
 import json
 import sqlite3
@@ -24,43 +13,60 @@ try:
 except ImportError:
     HAS_EMBEDDINGS = False
 
-DB_PATH = Path(__file__).parent.parent / "shared.db"
 EMBED_MODEL = "BAAI/bge-small-en-v1.5"
 
 
-def get_connection():
-    """Get database connection with WAL mode."""
-    if not DB_PATH.exists():
-        print(f"Database not found at {DB_PATH}")
-        print("Run: python scripts/init-db.py")
-        sys.exit(1)
+def get_db_path():
+    """Database path in current working directory."""
+    return Path.cwd() / "shared.db"
 
-    conn = sqlite3.connect(DB_PATH)
+
+def get_schema_path():
+    """Find schema.sql — bundled in package."""
+    return Path(__file__).parent / "schema.sql"
+
+
+def get_connection():
+    """Get database connection."""
+    db_path = get_db_path()
+    if not db_path.exists():
+        print(f"Database not found at {db_path}")
+        print("Run: shared-enterprise init")
+        sys.exit(1)
+    conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
 
-def query(sql: str):
+def init_db():
+    """Initialize database from schema.sql."""
+    db_path = get_db_path()
+    schema_path = get_schema_path()
+    if not schema_path.exists():
+        print(f"Schema not found at {schema_path}")
+        sys.exit(1)
+    conn = sqlite3.connect(db_path)
+    conn.executescript(schema_path.read_text())
+    conn.close()
+    print(f"Initialized {db_path}")
+
+
+def query(sql):
     """Execute a query and print results."""
     conn = get_connection()
     try:
         cursor = conn.execute(sql)
         rows = cursor.fetchall()
-
         if not rows:
             print("No results")
             return
-
-        # Print as table
         columns = [desc[0] for desc in cursor.description]
         print(" | ".join(columns))
         print("-" * (len(" | ".join(columns))))
-
         for row in rows:
             values = [str(v) if v is not None else "NULL" for v in row]
             print(" | ".join(values))
-
         print(f"\n({len(rows)} rows)")
     except sqlite3.Error as e:
         print(f"Error: {e}")
@@ -79,27 +85,24 @@ def tables():
     conn.close()
 
 
-def schema(table_name: str):
+def schema(table_name):
     """Show schema for a table."""
     conn = get_connection()
     cursor = conn.execute(f"PRAGMA table_info({table_name})")
     rows = cursor.fetchall()
-
     if not rows:
         print(f"Table '{table_name}' not found")
         return
-
     print(f"Schema for {table_name}:")
     for row in rows:
         nullable = "" if row["notnull"] else " (nullable)"
         default = f" DEFAULT {row['dflt_value']}" if row["dflt_value"] else ""
         pk = " PRIMARY KEY" if row["pk"] else ""
         print(f"  {row['name']}: {row['type']}{pk}{default}{nullable}")
-
     conn.close()
 
 
-def search(terms: str):
+def search(terms):
     """Full-text search across entries using FTS5."""
     conn = get_connection()
     try:
@@ -114,20 +117,16 @@ def search(terms: str):
             (terms,),
         )
         rows = cursor.fetchall()
-
         if not rows:
             print(f"No results for: {terms}")
             return
-
         for row in rows:
             print(f"[{row['topic']}] {row['title']} (id: {row['id']})")
-            # Show first 200 chars of content
             content = row["content"]
             if len(content) > 200:
                 content = content[:200] + "..."
             print(f"  {content}")
             print()
-
         print(f"({len(rows)} results)")
     except sqlite3.Error as e:
         print(f"Error: {e}")
@@ -142,31 +141,23 @@ def describe():
         "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'entries_fts%' ORDER BY name"
     )
     table_names = [row[0] for row in cursor.fetchall()]
-
     for name in table_names:
-        # Row count
         count = conn.execute(f"SELECT COUNT(*) FROM [{name}]").fetchone()[0]
         print(f"## {name} ({count} rows)")
-
-        # Schema
         cols = conn.execute(f"PRAGMA table_info([{name}])").fetchall()
         for col in cols:
             nullable = "" if col["notnull"] else " (nullable)"
             default = f" DEFAULT {col['dflt_value']}" if col["dflt_value"] else ""
             pk = " PK" if col["pk"] else ""
             print(f"  {col['name']}: {col['type']}{pk}{default}{nullable}")
-
-        # Sample row
         if count > 0:
             sample = conn.execute(f"SELECT * FROM [{name}] LIMIT 1").fetchone()
             print(f"  Sample: {dict(sample)}")
-
         print()
-
     conn.close()
 
 
-def context(terms: str):
+def context(terms):
     """Gather everything relevant to a topic across all tables."""
     conn = get_connection()
     like = f"%{terms}%"
@@ -185,7 +176,6 @@ def context(terms: str):
             (terms,),
         ).fetchall()
     except sqlite3.Error:
-        # FTS match syntax error — fall back to LIKE
         rows = conn.execute(
             "SELECT id, topic, title, content, metadata FROM entries WHERE content LIKE ? OR title LIKE ?",
             (like, like),
@@ -204,7 +194,6 @@ def context(terms: str):
                 meta = json.loads(row["metadata"])
                 if meta:
                     print(f"    Facets: {list(meta.keys())}")
-            # Show links from this entry
             links = conn.execute(
                 "SELECT to_id, relation FROM entry_links WHERE from_id = ?",
                 (row["id"],),
@@ -225,7 +214,6 @@ def context(terms: str):
             print(f"  [{row['status']}] {row['id']}: {row['text']}")
             if row["source"]:
                 print(f"    Source: {row['source']}")
-            # Show links from this claim
             links = conn.execute(
                 """
                 SELECT el.to_id, el.relation, e.title
@@ -239,7 +227,6 @@ def context(terms: str):
                 for l in links:
                     label = l["title"] if l["title"] else l["to_id"]
                     print(f"    → {label} ({l['relation']})")
-            # Show history for this claim via reverse index
             hist = conn.execute(
                 """
                 SELECT h.event_date, h.event_type, h.summary
@@ -269,7 +256,7 @@ def context(terms: str):
             print(f"  {row['event_date']} [{row['event_type']}] {row['summary']}{related_str}")
         print()
 
-    # 4. Facet metadata — search for the term in extracted facets
+    # 4. Facet metadata
     rows = conn.execute(
         "SELECT id, title, metadata FROM entries WHERE metadata LIKE ?",
         (like,),
@@ -283,7 +270,7 @@ def context(terms: str):
             print(f"    {json.dumps(meta)}")
         print()
 
-    # 5. Semantic search (only if fastembed available)
+    # 5. Semantic search (optional)
     if HAS_EMBEDDINGS:
         emb_rows = conn.execute(
             "SELECT id, source_table, vector FROM embeddings"
@@ -291,7 +278,6 @@ def context(terms: str):
         if emb_rows:
             model = TextEmbedding(model_name=EMBED_MODEL)
             query_vec = list(model.embed([terms]))[0]
-
             scored = []
             for row in emb_rows:
                 vec = np.frombuffer(row["vector"], dtype=np.float32)
@@ -300,7 +286,6 @@ def context(terms: str):
                 sim = float(dot / norm) if norm > 0 else 0.0
                 if sim >= 0.4:
                     scored.append((sim, row["id"], row["source_table"]))
-
             scored.sort(reverse=True)
             if scored:
                 found_anything = True
@@ -318,30 +303,4 @@ def context(terms: str):
     if not found_anything:
         print(f"Nothing found for: {terms}")
 
-
-def main():
-    if len(sys.argv) < 2:
-        print(__doc__)
-        sys.exit(1)
-
-    cmd = sys.argv[1]
-
-    if cmd == "query" and len(sys.argv) > 2:
-        query(sys.argv[2])
-    elif cmd == "tables":
-        tables()
-    elif cmd == "schema" and len(sys.argv) > 2:
-        schema(sys.argv[2])
-    elif cmd == "search" and len(sys.argv) > 2:
-        search(sys.argv[2])
-    elif cmd == "describe":
-        describe()
-    elif cmd == "context" and len(sys.argv) > 2:
-        context(sys.argv[2])
-    else:
-        print(__doc__)
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
+    conn.close()
