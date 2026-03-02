@@ -158,6 +158,33 @@ def search_entries(query: str):
     conn.close()
 
 
+def backfill_facets():
+    """Re-extract facets for entries with NULL metadata."""
+    conn = get_connection()
+    rows = conn.execute("SELECT id, title, content FROM entries WHERE metadata IS NULL").fetchall()
+
+    if not rows:
+        print("All entries already have metadata")
+        return
+
+    updated = 0
+    for row in rows:
+        facets = extract_facets(row["content"])
+        if facets:
+            conn.execute(
+                "UPDATE entries SET metadata = ? WHERE id = ?",
+                (json.dumps(facets), row["id"]),
+            )
+            print(f"  {row['id']} ({row['title']}): {list(facets.keys())}")
+            updated += 1
+        else:
+            print(f"  {row['id']} ({row['title']}): no facets found")
+
+    conn.commit()
+    conn.close()
+    print(f"\nBackfilled {updated}/{len(rows)} entries")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Entry management")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -182,6 +209,9 @@ def main():
     search_parser = subparsers.add_parser("search", help="Search entries")
     search_parser.add_argument("query", help="Search query")
 
+    # backfill
+    subparsers.add_parser("backfill", help="Re-extract facets for entries with NULL metadata")
+
     args = parser.parse_args()
 
     if args.command == "add":
@@ -202,6 +232,9 @@ def main():
 
     elif args.command == "search":
         search_entries(args.query)
+
+    elif args.command == "backfill":
+        backfill_facets()
 
 
 if __name__ == "__main__":
