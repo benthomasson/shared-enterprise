@@ -233,7 +233,7 @@ def context(terms):
                 dot = np.dot(query_vec, vec)
                 norm = np.linalg.norm(query_vec) * np.linalg.norm(vec)
                 sim = float(dot / norm) if norm > 0 else 0.0
-                if sim >= 0.4:
+                if sim >= 0.6:
                     semantic_scored.append((sim, row["id"], row["source_table"]))
                     if row["source_table"] == "entries":
                         r = conn.execute("SELECT title FROM entries WHERE id = ?", (row["id"],)).fetchone()
