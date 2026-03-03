@@ -282,6 +282,67 @@ def audit():
     conn.close()
 
 
+def gaps():
+    """Find claims without supporting entries — gap analysis."""
+    conn = get_connection()
+    claims_rows = conn.execute(
+        "SELECT id, text, source FROM claims WHERE status = 'IN' ORDER BY id"
+    ).fetchall()
+    if not claims_rows:
+        print("No IN claims found")
+        conn.close()
+        return
+
+    results = []
+    for row in claims_rows:
+        # Convert claim-id hyphens to spaces for FTS matching
+        search_terms = row["id"].replace("-", " ")
+        try:
+            matches = conn.execute(
+                "SELECT COUNT(*) as cnt FROM entries_fts WHERE entries_fts MATCH ?",
+                (search_terms,),
+            ).fetchone()
+            count = matches["cnt"] if matches else 0
+        except Exception:
+            count = 0
+        results.append((row["id"], row["text"], row["source"], count))
+
+    # Sort by match count ascending (gaps first)
+    results.sort(key=lambda r: r[3])
+
+    print("=== CLAIM GAP ANALYSIS ===\n")
+    no_entries = [r for r in results if r[3] == 0]
+    few_entries = [r for r in results if 1 <= r[3] <= 2]
+    well_covered = [r for r in results if r[3] >= 3]
+
+    if no_entries:
+        print(f"NO supporting entries ({len(no_entries)}):")
+        for claim_id, text, source, _ in no_entries:
+            text_short = text[:70] + "..." if len(text) > 70 else text
+            print(f"  {claim_id}")
+            print(f"    {text_short}")
+            print(f"    source: {source or '(none)'}")
+        print()
+
+    if few_entries:
+        print(f"FEW supporting entries ({len(few_entries)}):")
+        for claim_id, text, source, count in few_entries:
+            text_short = text[:70] + "..." if len(text) > 70 else text
+            print(f"  {claim_id} ({count} entries)")
+            print(f"    {text_short}")
+        print()
+
+    if well_covered:
+        print(f"Well covered ({len(well_covered)}):")
+        for claim_id, _, _, count in well_covered:
+            print(f"  {claim_id} ({count} entries)")
+        print()
+
+    total = len(results)
+    print(f"Summary: {len(no_entries)} gaps, {len(few_entries)} thin, {len(well_covered)} covered / {total} total")
+    conn.close()
+
+
 def import_beliefs(filepath):
     """Import claims from a beliefs.md file."""
     from pathlib import Path

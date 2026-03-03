@@ -117,6 +117,7 @@ def main():
     claims_link.add_argument("--relation", default="related", help="Relationship type")
 
     claims_sub.add_parser("audit", help="Run a full belief audit")
+    claims_sub.add_parser("gaps", help="Find claims without supporting entries")
 
     # -- embed (subgroup) --
     embed_p = subparsers.add_parser("embed", help="Embedding-based semantic search")
@@ -252,6 +253,8 @@ def main():
             claims_mod.link_claim(args.id, args.entry_id, relation=args.relation)
         elif args.claims_command == "audit":
             claims_mod.audit()
+        elif args.claims_command == "gaps":
+            claims_mod.gaps()
 
     elif args.command == "embed":
         if not args.embed_command:
