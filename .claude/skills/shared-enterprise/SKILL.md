@@ -27,6 +27,10 @@ shared-enterprise init
 shared-enterprise index entries/
 shared-enterprise index entries/ --reindex  # force re-index all
 
+# Full sync: index + beliefs + nogoods in one command
+shared-enterprise sync
+shared-enterprise sync --reindex  # force re-index all
+
 # Check index status
 shared-enterprise status
 ```

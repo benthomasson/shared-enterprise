@@ -55,6 +55,13 @@ def main():
     import_ng = subparsers.add_parser("import-nogoods", help="Import nogoods from a nogoods.md file")
     import_ng.add_argument("file", help="Path to nogoods.md")
 
+    # -- sync --
+    sync_p = subparsers.add_parser("sync", help="Index entries + import beliefs + import nogoods in one command")
+    sync_p.add_argument("--entries", default="entries/", help="Entries directory (default: entries/)")
+    sync_p.add_argument("--beliefs", default="beliefs.md", help="Beliefs file (default: beliefs.md)")
+    sync_p.add_argument("--nogoods", default="nogoods.md", help="Nogoods file (default: nogoods.md)")
+    sync_p.add_argument("--reindex", action="store_true", help="Force re-index all files")
+
     # -- entry (subgroup) --
     entry_p = subparsers.add_parser("entry", help="Entry management")
     entry_sub = entry_p.add_subparsers(dest="entry_command")
@@ -176,6 +183,30 @@ def main():
     elif args.command == "import-nogoods":
         from .claims import import_nogoods
         import_nogoods(args.file)
+
+    elif args.command == "sync":
+        from pathlib import Path
+        from .index_files import index_directory
+        from .claims import import_beliefs, import_nogoods
+
+        entries_dir = args.entries
+        beliefs_file = args.beliefs
+        nogoods_file = args.nogoods
+
+        if Path(entries_dir).is_dir():
+            index_directory(entries_dir, reindex=args.reindex)
+        else:
+            print(f"Skipping index: {entries_dir} not found")
+
+        if Path(beliefs_file).exists():
+            import_beliefs(beliefs_file)
+        else:
+            print(f"Skipping beliefs: {beliefs_file} not found")
+
+        if Path(nogoods_file).exists():
+            import_nogoods(nogoods_file)
+        else:
+            print(f"Skipping nogoods: {nogoods_file} not found")
 
     elif args.command == "entry":
         if not args.entry_command:
