@@ -358,20 +358,20 @@ def import_beliefs(filepath):
     #   ### claim-id [STATUS]
     #   Claim text on next line
     #   - Source: repo:path/to/file
-    #   - Source hash: abc123
+    #   - Source hash: abc123   (optional)
     #   - Date: 2026-02-25
     pattern = re.compile(
         r"### (\S+) \[(\w+)\]\n"
         r"(.+?)\n"
         r"- Source: (.+?)\n"
-        r"- Source hash: (\w+)\n"
+        r"(?:- Source hash: (\w+)\n)?"
         r"- Date: (\S+)"
     )
     matches = pattern.findall(text)
 
     if not matches:
         print(f"No beliefs found in {filepath}")
-        print("Expected format: ### claim-id [STATUS]\\nClaim text\\n- Source: ...\\n- Source hash: ...\\n- Date: ...")
+        print("Expected format: ### claim-id [STATUS]\\nClaim text\\n- Source: ...\\n- Date: ...")
         return
 
     conn = get_connection()
